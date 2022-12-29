@@ -1,3 +1,5 @@
+
+
 # ---------------------------------------------------------------------------
 # Writer to shared storage devices
 # ---------------------------------------------------------------------------
@@ -35,7 +37,7 @@ class AsyncImageWriter(queue.Queue):
 
     @property
     def compression(self):
-        self.mtda.debug(3, "storage.writer.compression.get()")
+        #self.mtda.debug(3, "storage.writer.compression.get()")
 
         result = self._compression
 
@@ -45,7 +47,7 @@ class AsyncImageWriter(queue.Queue):
 
     @compression.setter
     def compression(self, compression):
-        self.mtda.debug(3, "storage.writer.compression.set()")
+        #self.mtda.debug(3, "storage.writer.compression.set()")
 
         compression = CONSTS.IMAGE(compression)
         if compression == CONSTS.IMAGE.RAW:
@@ -63,8 +65,8 @@ class AsyncImageWriter(queue.Queue):
         self._compression = compression
 
         result = compression
-        self.mtda.debug(3, "storage.writer.compression.set(): "
-                           "%s" % str(result))
+        #self.mtda.debug(3, "storage.writer.compression.set(): "
+        #"%s" % str(result))
 
     @property
     def failed(self):

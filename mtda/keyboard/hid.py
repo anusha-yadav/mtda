@@ -21,8 +21,6 @@ from mtda.support.usb import Composite
 
 class HidKeyboardController(KeyboardController):
 
-    KEY_MOD_LSHIFT = 0x02
-
     # Timeout (seconds) for writes
     TIMEOUT = 1
 
@@ -30,7 +28,6 @@ class HidKeyboardController(KeyboardController):
         self.dev = None
         self.fd = None
         self.mtda = mtda
-        Composite.mtda = mtda
 
     def configure(self, conf):
         self.mtda.debug(3, "keyboard.hid.configure()")
@@ -38,8 +35,8 @@ class HidKeyboardController(KeyboardController):
         result = Composite.configure('keyboard', conf)
         if 'device' in conf:
             self.dev = conf['device']
-            self.mtda.debug(4, "keyboard.hid.configure(): "
-                               "will use {}".format(self.dev))
+            #self.mtda.debug(4, "keyboard.hid.configure(): "
+            #                   "will use {}".format(self.dev))
 
         self.mtda.debug(3, "keyboard.hid.configure(): {}".format(result))
         return result
@@ -47,11 +44,17 @@ class HidKeyboardController(KeyboardController):
     def probe(self):
         self.mtda.debug(3, "keyboard.hid.probe()")
 
-        result = True
+        result = False
         if self.dev is None:
-            result = False
-            self.mtda.debug(1, "keyboard.hid.probe(): "
-                               "{} not configured".format(self.dev))
+            #self.mtda.debug(1, "keyboard.hid.probe(): "
+            #                   "{} not configured".format(self.dev))
+            pass
+        else:
+            result = Composite.install()
+            if result is True and os.path.exists(self.dev) is False:
+                self.mtda.debug(1, "keyboard.hid.probe(): "
+                                   "{} not found".format(self.dev))
+                result = False
 
         self.mtda.debug(3, "keyboard.hid.probe(): {}".format(result))
         return result
@@ -70,30 +73,30 @@ class HidKeyboardController(KeyboardController):
         return result
 
     def idle(self):
-        self.mtda.debug(3, "keyboard.hid.idle()")
+        #self.mtda.debug(3, "keyboard.hid.idle()")
 
         result = True
         if self.fd is not None:
             self.fd.close()
             self.fd = None
 
-        self.mtda.debug(3, "keyboard.hid.idle(): {}".format(result))
+        #self.mtda.debug(3, "keyboard.hid.idle(): {}".format(result))
         return result
 
     def press(self, key, mod=0x00, repeat=1):
         self.mtda.debug(3, "keyboard.hid.press()")
 
-        if os.path.exists(self.dev) is False:
-            self.mtda.debug(1, "keyboard.hid.press(): "
-                               "{} not found".format(self.dev))
+        NULL_CHAR = chr(0)
+        try:
+            if self.fd is None:
+                self.mtda.debug(4, "keyboard.hid.press(): "
+                                   "opening {}".format(self.dev))
+                self.fd = open(self.dev, mode="r+b", buffering=0)
+        except FileNotFoundError:
+            self.mtda.debug(0, "keyboard.hid.press(): "
+                               "failed to open {}".format(self.dev))
             return False
 
-        if self.fd is None:
-            self.mtda.debug(4, "keyboard.hid.press(): "
-                               "opening {}".format(self.dev))
-            self.fd = open(self.dev, mode="r+b", buffering=0)
-
-        NULL_CHAR = chr(0)
         result = True
         while repeat > 0:
             repeat = repeat - 1
@@ -218,10 +221,9 @@ class HidKeyboardController(KeyboardController):
 
         return self.press(0x2b, 0, repeat)
 
-    def write(self, what):
+    def write(self, str):
         self.mtda.debug(3, "keyboard.hid.write()")
 
-        ret = '\n'
         lower_keys = {
             'a': 0x04, 'b': 0x05, 'c': 0x06, 'd': 0x07, 'e': 0x08, 'f': 0x09,
             'g': 0x0a, 'h': 0x0b, 'i': 0x0c, 'j': 0x0d, 'k': 0x0e, 'l': 0x0f,
@@ -229,41 +231,13 @@ class HidKeyboardController(KeyboardController):
             's': 0x16, 't': 0x17, 'u': 0x18, 'v': 0x19, 'w': 0x1a, 'x': 0x1b,
             'y': 0x1c, 'z': 0x1d, '1': 0x1e, '2': 0x1f, '3': 0x20, '4': 0x21,
             '5': 0x22, '6': 0x23, '7': 0x24, '8': 0x25, '9': 0x26, '0': 0x27,
-            ret: 0x28, ' ': 0x2c, '-': 0x2d, '=': 0x2e
-        }
-        shift_keys = {
             '!': 0x1e, '@': 0x1f, '#': 0x20, '$': 0x21, '%': 0x22, '^': 0x23,
-            '&': 0x24, '*': 0x25, '(': 0x26, ')': 0x27, '_': 0x2d, '+': 0x2e
+            '&': 0x24, '*': 0x25, '(': 0x26, ')': 0x27, ' ': 0x2c, '-': 0x2d,
+            '_': 0x2d, '+': 0x2e, '=': 0x2e
         }
-        special_keys = {
-            '<down>': 0x51,
-            '<enter>': 0x28,
-            '<esc>': 0x29,
-            '<f1>': 0x3a,
-            '<f2>': 0x3b,
-            '<f3>': 0x3c,
-            '<f4>': 0x3d,
-            '<f5>': 0x3e,
-            '<f6>': 0x3f,
-            '<f7>': 0x40,
-            '<f8>': 0x41,
-            '<f9>': 0x42,
-            '<f10>': 0x43,
-            '<f11>': 0x44,
-            '<f12>': 0x45,
-            '<left>': 0x50,
-            '<right>': 0x4f,
-            '<up>': 0x52
-        }
-
-        if what in special_keys:
-            return self.press(special_keys[what])
-
-        for k in what:
+        for k in str:
             if k in lower_keys:
                 self.press(lower_keys[k])
-            elif k in shift_keys:
-                self.press(shift_keys[k], mod=self.KEY_MOD_LSHIFT)
 
 
 def instantiate(mtda):

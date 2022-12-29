@@ -1,3 +1,5 @@
+
+
 # ---------------------------------------------------------------------------
 # USB Function storage driver for MTDA
 # ---------------------------------------------------------------------------
@@ -26,7 +28,6 @@ class UsbFunctionController(Image):
         self.device = None
         self.file = None
         self.mode = CONSTS.STORAGE.ON_HOST
-        Composite.mtda = mtda
 
     """ Configure this storage controller from the provided configuration"""
     def configure(self, conf):
@@ -80,7 +81,7 @@ class UsbFunctionController(Image):
                                        "device!".format(self.device))
         if self.file is not None:
             if os.path.exists(self.file) is True:
-                result = True
+                result = Composite.install()
             else:
                 self.mtda.debug(1, "storage.usbf.probe(): "
                                    "{} not found!".format(self.file))
@@ -95,6 +96,8 @@ class UsbFunctionController(Image):
     def to_host(self):
         self.mtda.debug(3, "storage.usbf.to_host()")
         self.lock.acquire()
+
+        Composite.remove()
 
         self.mode = CONSTS.STORAGE.ON_HOST
         result = True
@@ -114,6 +117,13 @@ class UsbFunctionController(Image):
 
         if result is True:
             self.mode = CONSTS.STORAGE.ON_TARGET
+
+        if self.file is not None:
+            if os.path.exists(self.file) is True:
+                result = Composite.install()
+            else:
+                self.mtda.debug(1, "storage.usbf.to_target(): "
+                                   "{} not found!".format(self.file))
 
         self.lock.release()
         self.mtda.debug(3, "storage.usbf.to_target(): {}".format(result))

@@ -10,8 +10,8 @@
 # ---------------------------------------------------------------------------
 
 # System imports
-import gpiod
-from operator import itemgetter
+import os
+import threading
 
 # Local imports
 from mtda.power.controller import PowerController
@@ -21,109 +21,98 @@ class GpioPowerController(PowerController):
 
     def __init__(self, mtda):
         self.dev = None
+        self.ev = threading.Event()
         self.mtda = mtda
-        self.lines = []
-        self.gpiopair = []
+        self.pins = []
 
     def configure(self, conf):
-        self.mtda.debug(3, "power.gpio.configure()")
-
-        result = None
-
-        if 'gpio' in conf:
-            for gpio in conf['gpio'].split(','):
-                self.gpiopair.append(itemgetter(0, 1)(gpio.split('@')))
-
-        self.mtda.debug(3, "power.gpio.configure(): {}".format(result))
-        return result
+        """ Configure this power controller from the provided configuration"""
+        if 'pin' in conf:
+            self.pins = [int(conf['pin'], 10)]
+        if 'pins' in conf:
+            self.pins = []
+            values = conf['pins'].split(',')
+            for v in values:
+                self.pins.append(int(v, 10))
 
     def probe(self):
-        self.mtda.debug(3, "power.gpio.probe()")
+        if self.pins is None:
+            raise ValueError("GPIO pin(s) not configured!")
 
-        result = False
+        for pin in self.pins:
+            if os.path.islink("/sys/class/gpio/gpio%d" % pin) is False:
+                f = open("/sys/class/gpio/export", "w")
+                f.write("%d" % pin)
+                f.close()
 
-        if not self.gpiopair:
-            raise ValueError("GPIO chip(s) and pin(s) pair not configured")
+            if os.path.islink("/sys/class/gpio/gpio%d" % pin) is False:
+                raise ValueError("GPIO %d not found in sysfs!" % pin)
 
-        for chip, pin in self.gpiopair:
-            pin = int(pin)
-            chip = gpiod.Chip(chip, gpiod.Chip.OPEN_BY_NAME)
-            self.mtda.debug(3, "this is chip {} and pin is {} "
-                               "power.gpio.configure(): ".format(chip, pin))
-            self.lines.append(chip.get_line(pin))
-
-        for line in self.lines:
-            try:
-                if line.is_used() is False:
-                    self.mtda.debug(3, "power.gpiochip{}@pin{} is free for "
-                                       "use" .format(chip, pin))
-                    line.request(consumer='mtda', type=gpiod.LINE_REQ_DIR_OUT)
-                else:
-                    raise ValueError("gpiochip{}@pin{} is in use by other "
-                                     "service" .format(chip, pin))
-            except OSError:
-                self.mtda.debug(3, "line {} is not configured correctly"
-                                   .format(line))
-
-        result = True
-
-        self.mtda.debug(3, "power.gpio.probe(): {}".format(result))
-        return result
+            f = open("/sys/class/gpio/gpio%d/direction" % pin, "w")
+            f.write("out")
+            f.close()
 
     def command(self, args):
-        self.mtda.debug(3, "power.gpio.command()")
-
-        result = False
-
-        self.mtda.debug(3, "power.gpio.command(): {}".format(result))
-        return result
+        return False
 
     def on(self):
-        self.mtda.debug(3, "power.gpio.on()")
-
-        result = False
-
-        for line in self.lines:
-            line.set_value(1)
-        result = self.status() == self.POWER_ON
-
-        self.mtda.debug(3, "power.gpio.on(): {}".format(result))
-        return result
+        """ Power on the attached device"""
+        print("In power on")
+        for pin in self.pins:
+            f = open("/sys/class/gpio/gpio%d/value" % pin, "w")
+            f.write("1")
+            f.close()
+        status = self.status()
+        if status == self.POWER_ON:
+            self.ev.set()
+            return True
+        return False
 
     def off(self):
-        self.mtda.debug(3, "power.gpio.off()")
-
-        result = False
-
-        for line in self.lines:
-            line.set_value(0)
-        result = self.status() == self.POWER_OFF
-
-        self.mtda.debug(3, "power.gpio.off(): {}".format(result))
-        return result
+        """ Power off the attached device"""
+        for pin in self.pins:
+            f = open("/sys/class/gpio/gpio%d/value" % pin, "w")
+            f.write("0")
+            f.close()
+        status = self.status()
+        if status == self.POWER_OFF:
+            self.ev.clear()
+            return True
+        return False
 
     def status(self):
-        self.mtda.debug(3, "power.gpio.status()")
-
+        """ Determine the current power state of the attached device"""
         first = True
         result = self.POWER_UNSURE
-
-        for line in self.lines:
-            value = line.get_value()
-            if value == 1:
+        for pin in self.pins:
+            f = open("/sys/class/gpio/gpio%d/value" % pin, "r")
+            value = f.read().strip()
+            f.close()
+            if value == '1':
                 value = self.POWER_ON
             else:
                 value = self.POWER_OFF
             self.mtda.debug(3, "power.gpio.status: "
-                               "line {} is {}" .format(line, value))
+                               "pin #%d is %s" % (pin, value))
             if first is True:
                 first = False
                 result = value
             elif value != result:
                 result = self.POWER_UNSURE
-
-        self.mtda.debug(3, "power.gpio.status(): {}".format(result))
         return result
+
+    def toggle(self):
+        """ Toggle power for the attached device"""
+        s = self.status()
+        if s == self.POWER_OFF:
+            self.on()
+        else:
+            self.off()
+        return self.status()
+
+    def wait(self):
+        while self.status() != self.POWER_ON:
+            self.ev.wait()
 
 
 def instantiate(mtda):

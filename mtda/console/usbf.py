@@ -10,6 +10,7 @@
 # ---------------------------------------------------------------------------
 
 # Local imports
+import asyncio,sys
 from mtda.console.serial import SerialConsole
 from mtda.support.usb import Composite
 
@@ -18,10 +19,9 @@ class UsbFunctionConsole(SerialConsole):
 
     def __init__(self, mtda):
         super().__init__(mtda)
-        self.hotplug = True
         self.port = None
         self.rate = 9600
-        Composite.mtda = mtda
+        self.loop = asyncio.get_event_loop()
 
     def configure(self, conf, role='console'):
         self.mtda.debug(3, "console.usbf.configure()")
@@ -37,6 +37,21 @@ class UsbFunctionConsole(SerialConsole):
     def configure_systemd(self, dir):
         return None
 
+    def probe(self):
+        self.mtda.debug(3, "console.usbf.probe()")
+        try:
+            result = Composite.install()
+            print(result,"++++++++++++++")
+            if result is True:
+                result = super().probe()
+                print(result,"------------------------")
+        except Exception as e:
+            print(e)
+            sys.exit()
+
+        self.mtda.debug(3, "console.usbf.probe(): {}".format(result))
+        return result
+    
 
 def instantiate(mtda):
     return UsbFunctionConsole(mtda)

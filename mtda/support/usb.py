@@ -16,7 +16,6 @@ import threading
 
 class Composite:
 
-    mtda = None
     lock = threading.Lock()
     vendor_id = "0x1d6b"  # Linux Foundation
     product_id = "0x0104"  # Multifunction Composite Gadget
@@ -27,35 +26,27 @@ class Composite:
     _storage = None
     _installed = False
 
+    functions = []
     path = "/sys/kernel/config/usb_gadget/" + product.lower().replace(" ", "_")
 
-    def debug(level, msg):
-        if Composite.mtda is not None:
-            Composite.mtda.debug(level, msg)
-
     def configure(what, conf):
-        Composite.debug(3, "composite.configure('{}')".format(what))
-
         with Composite.lock:
-            result = Composite._configure(what, conf)
-
-        Composite.debug(3, "composite.configure(): {}".format(result))
-        return result
+            return Composite._configure(what, conf)
 
     def _configure(what, conf):
         result = True
-        if what == 'storage' and 'file' in conf:
-            Composite._storage = conf['file']
-        if what in Composite.functions:
-            Composite.functions[what]['configured'] = True
-            Composite.functions[what]['enabled'] = True
-            Composite.debug(2, "composite.configure(): "
-                               "{} configured & enabled".format(what))
+        if what == 'console':
+            Composite.functions.append(Composite.console_function)
+        elif what == 'monitor':
+            Composite.functions.append(Composite.monitor_function)
+        elif what == 'keyboard':
+            Composite.functions.append(Composite.hid_function)
+        elif what == 'storage':
+            if 'file' in conf:
+                Composite._storage = conf['file']
+                Composite.functions.append(Composite.ms_function)
         else:
-            Composite.debug(1, "composite.configure(): "
-                               "not supported")
             result = False
-
         return result
 
     def _enable():
@@ -71,31 +62,14 @@ class Composite:
         return True
 
     def install():
-        Composite.debug(3, "composite.install()")
-
         with Composite.lock:
-            result = Composite._install()
-
-        Composite.debug(3, "composite.install(): {}".format(result))
-        return result
+            return Composite._install()
 
     def _install():
         if Composite._installed is True:
             return True
 
         Composite._remove()
-
-        enabled = False
-        for function in Composite.functions.values():
-            if function['enabled'] is True:
-                enabled = True
-                break
-
-        if enabled is False:
-            # Nothing to install
-            Composite.debug(2, "composite.install(): "
-                               "no functions were enabled")
-            return True
 
         atexit.register(Composite.remove)
         path = Composite.path
@@ -117,26 +91,17 @@ class Composite:
 
         Composite._create_functions()
 
-        if Composite.functions['storage']['enabled'] is True:
+        if Composite._storage is not None:
             lun = path + "/functions/mass_storage.usb0/lun.0/"
-            file = Composite._storage
             write(lun + "cdrom", "0")
             write(lun + "ro", "0")
             write(lun + "nofua", "0")
-            write(lun + "file", file)
-            Composite.debug(2, "composite.install(): "
-                               "storage device/file: {}".format(file))
+            write(lun + "file", Composite._storage)
         Composite._installed = Composite._enable()
-        return Composite._installed
 
     def remove():
-        Composite.debug(3, "composite.remove()")
-
         with Composite.lock:
-            result = Composite._remove()
-
-        Composite.debug(3, "composite.remove(): {}".format(result))
-        return result
+            return Composite._remove()
 
     def _remove():
         lang = Composite.lang
@@ -160,14 +125,9 @@ class Composite:
         Composite._installed = False
 
     def _create_functions():
-        for function in Composite.functions.values():
+        functions = Composite.functions
+        for function in functions:
             name = function['name']
-            if function['configured'] is False:
-                continue
-            if function['enabled'] is False:
-                continue
-            Composite.debug(2, "composite._create_functions: "
-                               "registering {}".format(name))
             path = Composite.path + "/functions/" + name
             if not os.path.exists(path):
                 os.makedirs(path)
@@ -183,15 +143,8 @@ class Composite:
             if not os.path.exists(config):
                 os.symlink(path, config, True)
 
-    def storage_toggle(enabled):
-        with Composite.lock:
-            if Composite.functions['storage']['configured'] is True:
-                Composite.functions['storage']['enabled'] = enabled
-
     hid_function = {
         "name": "hid.usb0",
-        "configured": False,
-        "enabled": False,
         "protocol": "1",
         "subclass": "1",
         "report_length": "8",
@@ -232,28 +185,15 @@ class Composite:
     }
 
     console_function = {
-        "name": "acm.GS0",
-        "configured": False,
-        "enabled": False
+        "name": "acm.GS0"
     }
 
     monitor_function = {
-        "name": "acm.GS1",
-        "configured": False,
-        "enabled": False
+        "name": "acm.GS1"
     }
 
     ms_function = {
-        "name": "mass_storage.usb0",
-        "configured": False,
-        "enabled": False
-    }
-
-    functions = {
-        "console": console_function,
-        "monitor": monitor_function,
-        "keyboard": hid_function,
-        "storage": ms_function
+        "name": "mass_storage.usb0"
     }
 
 
